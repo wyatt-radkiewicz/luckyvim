@@ -22,7 +22,7 @@
 - file explorer
 
 #### When will it be done?
-I don't know. Soon:trade_mark:
+I don't know. Soon™
 
 ## License
 [GLWTSPL](/LICENSE)
