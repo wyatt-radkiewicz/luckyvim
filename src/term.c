@@ -5,15 +5,12 @@
 
 #include "term.h"
 
-#define _esc "\x1b"
-#define _tui_mode _esc "[?1049h"
-#define _norm_mode _esc "[?1049l"
-#define _tui_clear _esc "[2J"
 #define MAX_REGIONS 32
 
 struct {
-	u32 w, h;
+	uint32_t w, h;
 	struct termios info;
+	void (*resize_cb)(uint32_t, uint32_t);
 } term;
 
 static void resize(int i) {
@@ -21,6 +18,7 @@ static void resize(int i) {
 	ioctl(1, TIOCGWINSZ, &ws);
 	term.w = ws.ws_col;
 	term.h = ws.ws_row;
+	if (term.resize_cb) term.resize_cb(term.w, term.h);
 }
 
 static void ondie(int i) {
@@ -53,11 +51,15 @@ void term_deinit(void) {
 	printf(_norm_mode);
 }
 
-u32 term_width(void) {
+uint32_t term_width(void) {
 	return term.w;
 }
 
-u32 term_height(void) {
+uint32_t term_height(void) {
 	return term.h;
+}
+
+void term_set_resize_cb(void (*cb)(uint32_t w, uint32_t h)) {
+	term.resize_cb = cb;
 }
 
