@@ -15,10 +15,6 @@ int main(int argc, char **argv) {
 	if (!conf_load(&conf, 24,
 		"[options]\n"
 		"tab_width = 4\n"
-		"splash_screen = \"\"\"\n"
-		"+-------+\n"
-		"| hello |\n"
-		"+-------+\"\"\"\n"
 		"\n"
 		"[flags]\n"
 		"relative_numbers = false\n"
@@ -29,6 +25,8 @@ int main(int argc, char **argv) {
 		printf("configure loading error\n");
 		return -1;
 	}
+
+	printf("%s\n", conf.options.splash_screen);
 
 	conf_deinit(&conf);
 	return 0;
