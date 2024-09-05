@@ -165,6 +165,14 @@ void color_gen_default(struct color *col, enum color_plane plane) {
 		plane == COLOR_PLANE_BG ? '4' : '3');
 }
 
+size_t strview_strncpy(char *buf, size_t len, const struct strview *s) {
+	len -= 1;
+	if (s->len < len) len = s->len;
+	memcpy(buf, s->str, len);
+	buf[len] = '\0';
+	return len + 1;
+}
+
 log_cb_t *_logcb;
 
 void logcb(log_cb_t *cb) {

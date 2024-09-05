@@ -114,13 +114,7 @@ static inline bool strview_eq(const struct strview *a, const struct strview *b) 
 	if (a->len != b->len) return false;
 	return memcmp(a->str, b->str, a->len) == 0;
 }
-static inline size_t strview_strncpy(char *buf, size_t len, const struct strview *s) {
-	len -= 1;
-	if (s->len < len) len = s->len;
-	memcpy(buf, s->str, len);
-	buf[len] = '\0';
-	return len + 1;
-}
+size_t strview_strncpy(char *buf, size_t len, const struct strview *s);
 
 enum log_level {
 	LOG_DBG,
