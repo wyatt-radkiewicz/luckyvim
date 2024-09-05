@@ -114,8 +114,16 @@ static inline bool strview_eq(const struct strview *a, const struct strview *b) 
 	if (a->len != b->len) return false;
 	return memcmp(a->str, b->str, a->len) == 0;
 }
+static inline size_t strview_strncpy(char *buf, size_t len, const struct strview *s) {
+	len -= 1;
+	if (s->len < len) len = s->len;
+	memcpy(buf, s->str, len);
+	buf[len] = '\0';
+	return len + 1;
+}
 
 enum log_level {
+	LOG_DBG,
 	LOG_INFO,
 	LOG_WARN,
 	LOG_ERR,
@@ -124,9 +132,46 @@ enum log_level {
 typedef void (log_cb_t)(enum log_level l, const char *msg, va_list args);
 
 void logcb(log_cb_t *cb);
-void loginfo(const char *msg, ...);
-void logwarn(const char *msg, ...);
-void logerr(const char *msg, ...);
+#define logdbg(msg) \
+	_logdbg("%s in %s: " msg, \
+		__func__, \
+		strrchr(__FILE__, '/') + 1 ? strrchr(__FILE__, '/') + 1 : __FILE__)
+#define loginfo(msg) \
+	_loginfo("%s in %s: " msg, \
+		__func__, \
+		strrchr(__FILE__, '/') + 1 ? strrchr(__FILE__, '/') + 1 : __FILE__)
+#define logwarn(msg) \
+	_logwarn("%s in %s: " msg, \
+		__func__, \
+		strrchr(__FILE__, '/') + 1 ? strrchr(__FILE__, '/') + 1 : __FILE__)
+#define logerr(msg) \
+	_logerr("%s in %s: " msg, \
+		__func__, \
+		strrchr(__FILE__, '/') + 1 ? strrchr(__FILE__, '/') + 1 : __FILE__)
+#define logdbgf(msg, ...) \
+	_logdbg("%s in %s: " msg, \
+		__func__, \
+		strrchr(__FILE__, '/') + 1 ? strrchr(__FILE__, '/') + 1 : __FILE__, \
+		__VA_ARGS__)
+#define loginfof(msg, ...) \
+	_loginfo("%s in %s: " msg, \
+		__func__, \
+		strrchr(__FILE__, '/') + 1 ? strrchr(__FILE__, '/') + 1 : __FILE__, \
+		__VA_ARGS__)
+#define logwarnf(msg, ...) \
+	_logwarn("%s in %s: " msg, \
+		__func__, \
+		strrchr(__FILE__, '/') + 1 ? strrchr(__FILE__, '/') + 1 : __FILE__, \
+		__VA_ARGS__)
+#define logerrf(msg, ...) \
+	_logerr("%s in %s: " msg, \
+		__func__, \
+		strrchr(__FILE__, '/') + 1 ? strrchr(__FILE__, '/') + 1 : __FILE__, \
+		__VA_ARGS__)
+void _logdbg(const char *msg, ...);
+void _loginfo(const char *msg, ...);
+void _logwarn(const char *msg, ...);
+void _logerr(const char *msg, ...);
 
 struct vec {
 	size_t len;
@@ -154,6 +199,17 @@ static inline int utf8_codepoint_len(const uint8_t start) {
 	const int clz = __builtin_clz(~start << 24);
 	return clz + !clz;
 }
+
+char *file_load_as_str(const char *path);
+bool file_exists(const char *path);
+
+struct host_features {
+	int color_depth;
+};
+
+enum result host_features_find(struct host_features *hf);
+
+char *get_realpath(const char *path);
 
 #endif
 

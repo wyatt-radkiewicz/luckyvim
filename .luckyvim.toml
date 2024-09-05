@@ -1,0 +1,7 @@
+[options]
+splash_screen = """
+\"this is a\" quote
+"""
+
+[colors]
+fg = "blue"

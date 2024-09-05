@@ -3,6 +3,9 @@
 
 #include "common.h"
 
+#define CONF_PATH_ENV "LUCKYVIM_CONF"
+#define CONF_PATH "$HOME/.luckyvim.toml"
+
 #define CONF_FLAGS \
 	CONF_FLAG(relative_numbers, true) \
 	CONF_FLAG(show_line_numbers, true) \
@@ -48,9 +51,14 @@ struct conf {
 	} flags;
 };
 
-void conf_default(struct conf *conf, int color_bit_depth);
-enum result conf_load(struct conf *conf, int color_bit_depth, const char *str);
+void conf_default(struct conf *conf, const struct host_features *hf);
+enum result conf_load(struct conf *conf, const struct host_features *hf,
+			const char *str);
 void conf_deinit(struct conf *conf);
+
+// Load config file from ~/.luckyvim.toml
+// if it isn't there it will just load the default configuration
+enum result conf_load_rc(struct conf *conf, const struct host_features *hf);
 
 #endif
 

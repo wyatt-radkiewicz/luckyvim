@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <sys/stat.h>
+#include <wordexp.h>
 
 #include "common.h"
 
@@ -168,24 +170,17 @@ log_cb_t *_logcb;
 void logcb(log_cb_t *cb) {
 	_logcb = cb;
 }
-void loginfo(const char *msg, ...) {
-	va_list args;
-	va_start(args, msg);
-	if (_logcb) _logcb(LOG_INFO, msg, args);
-	va_end(args);
-}
-void logwarn(const char *msg, ...) {
-	va_list args;
-	va_start(args, msg);
-	if (_logcb) _logcb(LOG_WARN, msg, args);
-	va_end(args);
-}
-void logerr(const char *msg, ...) {
-	va_list args;
-	va_start(args, msg);
-	if (_logcb) _logcb(LOG_ERR, msg, args);
-	va_end(args);
-}
+#define LOGFN(name, level) \
+	void name(const char *msg, ...) { \
+		va_list args; \
+		va_start(args, msg); \
+		if (_logcb) _logcb(level, msg, args); \
+		va_end(args); \
+	}
+LOGFN(_logdbg, LOG_DBG)
+LOGFN(_loginfo, LOG_INFO)
+LOGFN(_logwarn, LOG_WARN)
+LOGFN(_logerr, LOG_ERR)
 
 #define VEC_SIZE(elems, capacity) (sizeof(struct vec) * (capacity) * (elems))
 void *vec_init(size_t elem_size, size_t capacity) {
@@ -214,5 +209,58 @@ void vec_pop(void *data, size_t nelems, void *elems) {
 	vec->len -= nelems;
 	if (!elems) return;
 	memcpy(elems, vec->data + vec->len * vec->elem_size, nelems * vec->elem_size);
+}
+
+char *file_load_as_str(const char *path) {
+	struct stat st;
+	if (stat(path, &st) != 0) return NULL;
+
+	FILE *fp = fopen(path, "r");
+	if (!fp) return NULL;
+	char *str = malloc(st.st_size + 1);
+	fread(str, st.st_size, 1, fp);
+	fclose(fp);
+	str[st.st_size] = '\0';
+	return str;
+}
+
+enum result host_features_find(struct host_features *hf) {
+	const char *term = getenv("TERM");
+	const char *color_term = getenv("COLORTERM");
+
+	if (!term && !color_term) {
+		logerr("host_features_find: $TERM environment variable not set!");
+		return ERR;
+	}
+
+	{
+		const char *colors = color_term ? color_term : term;
+		if (strstr(colors, "truecolor") || strstr(colors, "24")) {
+			hf->color_depth = 24;
+		} else if (strstr(colors, "256")) {
+			hf->color_depth = 8;
+		} else {
+			hf->color_depth = 4;
+		}
+	}
+	return OK;
+}
+
+char *get_realpath(const char *path) {
+	wordexp_t exp = {0};
+	if (wordexp(path, &exp, WRDE_NOCMD) != 0) return NULL;
+	size_t exp_len = 0;
+	for (int i = 0; i < exp.we_wordc; i++) exp_len += strlen(exp.we_wordv[i]);
+
+	char *rel = malloc(exp_len + 1);
+	if (!rel) return NULL;
+	rel[0] = '\0';
+
+	for (int i = 0; i < exp.we_wordc; i++) strcat(rel, exp.we_wordv[i]);
+
+	char *rpath = realpath(rel, NULL);
+	free(rel);
+	if (!rpath) return NULL;
+	return rpath;
 }
 
