@@ -133,35 +133,54 @@ static int col8to4(int idx) {
 	return idx;
 }
 
-void color_init_24(struct color *col, enum color_plane plane, int max_depth,
-		int r, int g, int b) {
-	if (max_depth < 24) {
-		color_init_8(col, plane, max_depth, col24to8(r, g, b));
-		return;
+void color_init(struct color *col, struct color_init_args *args) {
+	memset(col, 0, sizeof(*col));
+
+	if (args->underline) strcat(col->style, "4;");
+	else strcat(col->style, "24;");
+	if (args->bold) strcat(col->style, "1;");
+	else strcat(col->style, "22;");
+	if (args->italic) strcat(col->style, "3;");
+	else strcat(col->style, "23;");
+
+	switch (args->bit_depth) {
+	case 24:
+		if (args->hf->color_depth >= 24) {
+			sprintf(col->color, "%c8;2;%d;%d;%dm",
+				args->plane == COLOR_PLANE_BG ? '4' : '3',
+				args->r, args->g, args->b);
+			break;
+		}
+
+		args->i = col24to8(args->r, args->g, args->b);
+		args->bit_depth = 8;
+	case 8:
+		if (args->hf->color_depth >= 8) {
+			sprintf(col->color, "%c8;5;%dm",
+				args->plane == COLOR_PLANE_BG ? '4' : '3',
+				args->i);
+			break;
+		}
+
+		args->i = col8to4(args->i);
+		args->bit_depth = 4;
+	case 4:
+		if (args->i >= BRIGHT_BLACK) {
+			sprintf(col->color, CSI "%s%dm",
+				args->plane == COLOR_PLANE_BG ? "10" : "9",
+				args->i - BRIGHT_BLACK);
+		} else {
+			sprintf(col->color, CSI "%c%dm",
+				args->plane == COLOR_PLANE_BG ? '4' : '3',
+				args->i);
+		}
+		break;
 	}
-	sprintf(col->esc_seq, CSI "%c8;2;%d;%d;%dm",
-		plane == COLOR_PLANE_BG ? '4' : '3', r, g, b);
 }
-void color_init_8(struct color *col, enum color_plane plane,
-		int max_depth, int idx) {
-	if (max_depth < 8) {
-		color_init_4(col, plane, col8to4(idx));
-		return;
-	}
-	sprintf(col->esc_seq, CSI "%c8;5;%dm",
-		plane == COLOR_PLANE_BG ? '4' : '3', idx);
-}
-void color_init_4(struct color *col, enum color_plane plane, int idx) {
-	if (idx >= BRIGHT_BLACK) {
-		sprintf(col->esc_seq, CSI "%s%dm",
-			plane == COLOR_PLANE_BG ? "10" : "9", idx - BRIGHT_BLACK);
-	} else {
-		sprintf(col->esc_seq, CSI "%c%dm",
-			plane == COLOR_PLANE_BG ? '4' : '3', idx);
-	}
-}
-void color_gen_default(struct color *col, enum color_plane plane) {
-	sprintf(col->esc_seq, CSI "%c9m",
+void color_gen_default(struct color *col, const struct host_features *hf,
+			enum color_plane plane) {
+	strcpy(col->style, "0;");
+	sprintf(col->color, "%c9m",
 		plane == COLOR_PLANE_BG ? '4' : '3');
 }
 

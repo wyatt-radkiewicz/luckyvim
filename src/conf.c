@@ -27,8 +27,13 @@ void conf_default(struct conf *conf, const struct host_features *hf) {
 	};
 
 	// Set up colors
-#define COLOR(color, plane, dr, dg, db) \
-	color_init_24(conf->colors + COLOR_##color, plane, hf->color_depth, dr, dg, db);
+#define COLOR(color, name, _plane, dr, dg, db) \
+	color_init(conf->colors + COLOR_##color, &(struct color_init_args){ \
+		.hf = hf, \
+		.plane = _plane, \
+		.bit_depth = 24, \
+		.r = dr, .g = dg, .b = db, \
+	});
 	COLORS
 #undef COLOR
 }
@@ -43,6 +48,10 @@ struct parser {
 
 	// Max size of escaped string
 	char *esc;
+
+	// Current color being parsed
+	struct color *color;
+	struct color_init_args color_args;
 };
 
 enum result parse_whitespace(struct parser *p, bool include_newlines) {
@@ -257,35 +266,19 @@ static enum result set_opt(struct conf *conf, struct parser *p) {
 	return ERR;
 }
 
-static enum result set_flag(struct conf *conf, struct parser *p) {
-	if (p->nkeys != 2 || !strview_eq(p->keys, &STRVIEW("flags"))) {
-		logerrf("expected flag to be in 'flags' table on line %d",
-			p->line);
-		return ERR;
-	}
-
+static enum result set_bool(struct conf *conf, struct parser *p, bool *out) {
 	struct strview ident;
-	bool val;
 	if (!parse_word(p, &ident, false)) return ERR;
 	if (strview_eq(&ident, &STRVIEW("true"))) {
-		val = true;
+		*out = true;
 	} else if (strview_eq(&ident, &STRVIEW("false"))) {
-		val = false;
+		*out = false;
 	} else {
 		logerrf("expected 'true' or 'false' on line %d", p->line);
 		return ERR;
 	}
 
-#define CONF_FLAG(name, default) \
-	if (strview_eq(p->keys + 1, &STRVIEW(#name))) { \
-		conf->flags.name = val; \
-		return OK; \
-	}
-	CONF_FLAGS
-#undef CONF_FLAG
-
-	logerr("unknown flag on line %d");
-	return ERR;
+	return OK;
 }
 
 static int set_base_col(struct conf *conf, struct parser *p, enum result *res) {
@@ -294,16 +287,10 @@ static int set_base_col(struct conf *conf, struct parser *p, enum result *res) {
 	struct strview str;
 	if (!parse_string(p, &str)) return ERR;
 
-#define BASE_COLOR(name) \
-	{ \
-		char buf[] = #name; \
-		for (int i = 0; i < ARRLEN(buf); i++) { \
-			buf[i] = tolower(buf[i]); \
-		} \
-		if (strview_eq(&str, &(struct strview){ .str = buf, .len = sizeof(buf) - 1})) { \
-			*res = OK; \
-			return name; \
-		} \
+#define BASE_COLOR(color, name) \
+	if (strview_eq(&str, &STRVIEW(name))) { \
+		*res = OK; \
+		return color; \
 	}
 	BASE_COLORS
 #undef BASE_COLOR
@@ -312,13 +299,11 @@ static int set_base_col(struct conf *conf, struct parser *p, enum result *res) {
 	return ERR;
 }
 
-static enum result set_color(struct conf *conf, struct parser *p,
-				enum color_plane plane,
-				struct color *color, const struct host_features *hf) {
+static enum result set_color(struct conf *conf, struct parser *p) {
 	if (isdigit(*p->src) || *p->src == '"') {
 		enum result res;
-		color_init_8(color, plane, hf->color_depth,
-			set_base_col(conf, p, &res));
+		p->color_args.bit_depth = 8;
+		p->color_args.i = set_base_col(conf, p, &res);
 		return res;
 	}
 
@@ -326,6 +311,7 @@ static enum result set_color(struct conf *conf, struct parser *p,
 		logerrf("expected array on line %d", p->line);
 		return ERR;
 	}
+	if (!parse_whitespace(p, true)) return ERR;
 
 	int nums[5];
 	int nums_len = 0;
@@ -339,40 +325,59 @@ static enum result set_color(struct conf *conf, struct parser *p,
 		if (nums_len == 4) nums[nums_len++] = set_base_col(conf, p, &res);
 		else nums[nums_len++] = set_int(conf, p, 0, 255, &res);
 		if (!res) return ERR;
+
+		if (!parse_whitespace(p, true)) return ERR;
+		if (*p->src != ',') {
+			if (*p->src == ']') break;
+			logerrf("missing ] on line %d", p->line);
+			return ERR;
+		}
+		p->src++;
+		if (!parse_whitespace(p, true)) return ERR;
 	}
 	p->src++;
 
 	switch (nums_len) {
 	case 1:
-		color_init_8(color, plane, hf->color_depth, nums[0]);
+		p->color_args.bit_depth = 8;
+		p->color_args.i = nums[0];
 		break;
 	case 2:
-		switch (hf->color_depth) {
+		switch (p->color_args.hf->color_depth) {
 		case 4:
 			if (nums[1] > 15) goto erange;
-			color_init_4(color, plane, nums[1]);
+			p->color_args.bit_depth = 4;
+			p->color_args.i = nums[1];
 		default:
-			color_init_8(color, plane, hf->color_depth, nums[0]);
+			p->color_args.bit_depth = 8;
+			p->color_args.i = nums[0];
 			break;
 		}
 	case 3:
-		color_init_24(color, plane, hf->color_depth, nums[0], nums[1], nums[2]);
+		p->color_args.bit_depth = 24;
+		p->color_args.r = nums[0];
+		p->color_args.g = nums[1];
+		p->color_args.b = nums[2];
 		break;
 	case 4:
 	case 5:
-		switch (hf->color_depth) {
+		switch (p->color_args.hf->color_depth) {
 		case 4:
 			if (nums_len == 5) {
 				if (nums[4] > 15) goto erange;
-				color_init_8(color, plane, hf->color_depth, nums[4]);
+				p->color_args.bit_depth = 4;
+				p->color_args.i = nums[4];
 				break;
 			}
 		case 8:
-			color_init_8(color, plane, hf->color_depth, nums[3]);
+			p->color_args.bit_depth = 8;
+			p->color_args.i = nums[3];
 			break;
 		default:
-			color_init_24(color, plane, hf->color_depth,
-					nums[0], nums[1], nums[2]);
+			p->color_args.bit_depth = 24;
+			p->color_args.r = nums[0];
+			p->color_args.g = nums[1];
+			p->color_args.b = nums[2];
 			break;
 		}
 	}
@@ -387,18 +392,66 @@ erange:
 static enum result set_table(struct conf *conf, struct parser *p,
 				const struct host_features *hf);
 
+static enum result is_color(struct conf *conf, struct parser *p,
+				const struct host_features *hf) {
+	// Check if we're setting a color, then do colors instead
+	if (p->nkeys != 2 || !strview_eq(p->keys, &STRVIEW("colors"))) {
+		return OK;
+	}
+
+	if (p->color) {
+		color_init(p->color, &p->color_args);
+		p->color = NULL;
+	}
+#define COLOR(col, name, _plane, dr, dg, db) \
+	if (strview_eq(p->keys + p->nkeys - 1, \
+		&(struct strview){ .str = name, \
+			.len = sizeof(name) - 1})) { \
+		p->color = conf->colors + COLOR_##col; \
+		p->color_args = (struct color_init_args){ \
+			.hf = hf, \
+			.plane = _plane, \
+		}; \
+		return OK; \
+	}
+	COLORS
+#undef COLOR
+
+	char buf[256];
+	strview_strncpy(buf, ARRLEN(buf), p->keys + p->nkeys - 1);
+	logerrf("no color by name %s on line %d", buf, p->line);
+	return ERR;
+}
+
+static enum result parse_key(struct conf *conf, struct parser *p,
+				const struct host_features *hf) {
+	if (!parse_whitespace(p, false)) return ERR;
+	while (true) {
+		if (!parse_word(p, p->keys + p->nkeys++, true)) return ERR;
+		if (!is_color(conf, p, hf)) return ERR;
+		if (!parse_whitespace(p, false)) return ERR;
+		if (p->nkeys > ARRLEN(p->keys)) {
+			logerrf("hit recursion limit on line %d", p->line);
+			return ERR;
+		}
+		if (*p->src != '.') break;
+		p->src++;
+	}
+
+	if (!parse_whitespace(p, false)) return ERR;
+	return OK;
+}
+
 static enum result parse_kv(struct conf *conf, struct parser *p,
 				const struct host_features *hf, bool expect_newln) {
 	if (!parse_whitespace(p, true)) return ERR;
 	if (*p->src == '\0') return OK;
 
 	// parse [section] headers
-	if (expect_newln && p->nkeys <= 1 && *p->src == '[') {
+	if (expect_newln && *p->src == '[') {
 		p->src++;
 		p->nkeys = 0;
-		if (!parse_whitespace(p, false)) return ERR;
-		if (!parse_word(p, p->keys + p->nkeys++, true)) return ERR;
-		if (!parse_whitespace(p, false)) return ERR;
+		if (!parse_key(conf, p, hf)) return ERR;
 		if (*p->src++ != ']') {
 			logerrf("expected ']' on line %d", p->line);
 			return ERR;
@@ -416,17 +469,7 @@ static enum result parse_kv(struct conf *conf, struct parser *p,
 
 	const int reset_keys = p->nkeys;
 
-	// Get didnt.ask part of didnt.ask = true
-	while (true) {
-		if (!parse_word(p, p->keys + p->nkeys++, true)) return ERR;
-		if (!parse_whitespace(p, false)) return ERR;
-		if (p->nkeys > ARRLEN(p->keys)) {
-			logerrf("hit recursion limit on line %d", p->line);
-			return ERR;
-		}
-		if (*p->src != '.') break;
-		p->src++;
-	}
+	if (!parse_key(conf, p, hf)) return ERR;
 
 	// Make sure equals sign is there
 	if (*p->src++ != '=') {
@@ -436,42 +479,71 @@ static enum result parse_kv(struct conf *conf, struct parser *p,
 
 	if (!parse_whitespace(p, false)) return ERR;
 
-	// Check if we're setting a color, then do colors instead
-	if (p->nkeys == 2 && strview_eq(p->keys, &STRVIEW("colors"))) {
-		struct color *color = NULL;
-		enum color_plane color_plane;
-#define COLOR(name, plane, dr, dg, db) \
-	{ \
-		char buf[] = #name; \
-		for (int i = 0; i < ARRLEN(buf); i++) { \
-			buf[i] = tolower(buf[i]); \
-		} \
-		if (strview_eq(p->keys + p->nkeys - 1, \
-			&(struct strview){ .str = buf, .len = sizeof(buf) - 1})) { \
-			color = conf->colors + COLOR_##name; \
-			color_plane = plane; \
-		} \
-	}
-		COLORS
-#undef COLOR
-		if (color) {
-			if (!set_color(conf, p, color_plane, color, hf)) {
-				return ERR;
-			}
+	// This is a color
+	if (p->color) {
+		// Just setting color
+		if (p->nkeys == 2) {
+			if (!set_color(conf, p)) return ERR;
 			goto check_newln;
-		} else {
-			char color_name[256];
-			strview_strncpy(color_name, ARRLEN(color_name), p->keys + 1);
-			logerrf("unknown color %s on line %d", color_name, p->line);
+		} else if (p->nkeys != 3) {
+			logerrf("invalid color field on line %d", p->line);
 			return ERR;
 		}
+
+		// Setting either color or something else
+		if (strview_eq(p->keys + 2, &STRVIEW("color"))) {
+			if (!set_color(conf, p)) return ERR;
+			goto check_newln;
+		} else if (strview_eq(p->keys + 2, &STRVIEW("underline"))) {
+			bool val;
+			if (!set_bool(conf, p, &val)) return ERR;
+			p->color_args.underline = val;
+		} else if (strview_eq(p->keys + 2, &STRVIEW("italic"))) {
+			bool val;
+			if (!set_bool(conf, p, &val)) return ERR;
+			p->color_args.italic = val;
+		} else if (strview_eq(p->keys + 2, &STRVIEW("bold"))) {
+			bool val;
+			if (!set_bool(conf, p, &val)) return ERR;
+			p->color_args.bold = val;
+		} else {
+			logerrf("invalid color field on line %d", p->line);
+			return ERR;
+		}
+
+		if (p->color_args.plane == COLOR_PLANE_BG) {
+			logwarnf("line %d: can not have style for bg color",
+				p->line);
+			p->color_args.underline = false;
+			p->color_args.italic = false;
+			p->color_args.bold = false;
+		}
+
+		goto check_newln;
 	}
 
 	// Now this can be many different things...
 	switch (*p->src) {
-	case 't': case 'f':
-		if (!set_flag(conf, p)) return ERR;
-		break;
+	case 't': case 'f': {
+		bool val;
+		
+		if (p->nkeys != 2 || !strview_eq(p->keys, &STRVIEW("flags"))) {
+			logerrf("expected flag to be in 'flags' table on line %d",
+				p->line);
+			return ERR;
+		}
+		if (!set_bool(conf, p, &val)) return ERR;
+#define CONF_FLAG(name, default) \
+		if (strview_eq(p->keys + 1, &STRVIEW(#name))) { \
+			conf->flags.name = val; \
+			return OK; \
+		}
+		CONF_FLAGS
+#undef CONF_FLAG
+
+		logerr("unknown flag on line %d");
+		return ERR;
+	}
 	case '"': case '[':
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
@@ -503,6 +575,10 @@ check_newln:
 	}
 
 	p->nkeys = reset_keys;
+	if (p->nkeys < 2 && p->color) {
+		color_init(p->color, &p->color_args);
+		p->color = NULL;
+	}
 
 	return OK;
 }
@@ -514,6 +590,7 @@ static enum result set_table(struct conf *conf, struct parser *p,
 		if (!parse_kv(conf, p, hf, false)) return ERR;
 	}
 	p->src++;
+
 	return OK;
 }
 
@@ -533,6 +610,10 @@ enum result conf_load(struct conf *conf, const struct host_features *hf,
 			ret = ERR;
 			goto cleanup;
 		}
+	}
+	if (p.color) {
+		color_init(p.color, &p.color_args);
+		p.color = NULL;
 	}
 
 cleanup:

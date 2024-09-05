@@ -1,0 +1,7 @@
+# background color
+colors.bg = "black"
+
+[colors.fg]
+color = [255, 0, 69]
+underline = true
+
