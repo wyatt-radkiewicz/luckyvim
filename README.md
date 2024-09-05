@@ -11,15 +11,15 @@
 - 🔥 Blazingly fast?
 
 ## What features will be in LuckyVim?
-- toml config file
-- vim bindings
-- treesitter integration
-- lsp integration
-- debugging integration
-- tabs
-- windows
-- fuzzy finder
-- file explorer
+- [x] toml config file
+- [ ] vim bindings
+- [ ] treesitter integration
+- [ ] lsp integration
+- [ ] debugging integration
+- [ ] tabs
+- [ ] windows
+- [ ] fuzzy finder
+- [ ] file explorer
 
 #### When will it be done?
 I don't know. Soon™
