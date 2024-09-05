@@ -9,8 +9,8 @@ OUT	:=$(BUILD)/luv
 OBJS	:=$(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 
 # Environment variables
-CFLAGS :=$(CFLAGS) -O0 -g -std=gnu99
-LDFLAGS :=$(LDFLAGS) -lm
+CFLAGS :=$(CFLAGS) $(shell pkg-config tree-sitter --cflags) -O0 -g -std=gnu99
+LDFLAGS :=$(LDFLAGS) $(shell pkg-config tree-sitter --libs) -lm
 
 # Build the main executable
 $(OUT): $(OBJS)
