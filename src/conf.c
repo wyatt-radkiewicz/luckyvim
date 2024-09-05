@@ -88,7 +88,7 @@ enum result parse_string_char(struct parser *p, struct strview *str, bool do_esc
 	case 'u': case 'U': {
 		const int ndigits = *p->src++ == 'u' ? 4 : 8;
 		const char *src = p->src;
-		num = strtoul(p->src, (char **)&p->src, 0);
+		num = strtoul(p->src, (char **)&p->src, 16);
 		if (!p->src) {
 			logerrf("invalid integer format for unicode char on line %d",
 				p->line);
@@ -101,6 +101,11 @@ enum result parse_string_char(struct parser *p, struct strview *str, bool do_esc
 		}
 		break;
 	}
+	case 'n':
+		if (!(p->esc = vec_push(p->esc, 1, &(char){'\n'}))) return ERR;
+		str->len++;
+		p->src++;
+		return OK;
 	default:
 		if (!(p->esc = vec_push(p->esc, 1, p->src++))) return ERR;
 		str->len++;
