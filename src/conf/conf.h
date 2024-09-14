@@ -1,7 +1,8 @@
 #ifndef _conf_h_
 #define _conf_h_
 
-#include "common.h"
+#include "util/util.h"
+#include "io/color.h"
 
 #define CONF_PATH_ENV "LUCKYVIM_CONF"
 #define CONF_PATH "$HOME/.luckyvim.toml"
@@ -38,17 +39,13 @@
 struct conf {
 	struct color colors[COLOR_MAX];
 
-	struct {
 #define CONF_OPT(name, type, default, min, max) type name;
-		CONF_OPTS
+	CONF_OPTS
 #undef CONF_OPT
-	} options;
 
-	struct {
 #define CONF_FLAG(name, default) bool name : 1;
-		CONF_FLAGS
+	CONF_FLAGS
 #undef CONF_FLAG
-	} flags;
 };
 
 void conf_default(struct conf *conf, const struct host_features *hf);
